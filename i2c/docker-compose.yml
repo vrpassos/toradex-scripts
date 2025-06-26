@@ -1,0 +1,8 @@
+version: "3.9"
+services:
+  i2c-reader:
+    image: vpassos/i2c-reader:arm64
+    device_cgroup_rules:
+      - 'c 89:* rwm'
+    volumes:
+      - /dev/i2c-3:/dev/i2c-3
