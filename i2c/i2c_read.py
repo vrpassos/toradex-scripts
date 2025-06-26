@@ -3,7 +3,7 @@ import smbus2
 
 # Configurações do ADS1115
 I2C_BUS = 3
-ADS1115_ADDRESS = 0x49  # Endereço ajustado para 0x49
+ADS1115_ADDRESS = 0x48  # Endereço ajustado para 0x48
 CONFIG_REG = 0x01
 CONVERSION_REG = 0x00
 
