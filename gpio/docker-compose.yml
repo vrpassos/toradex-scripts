@@ -1,0 +1,20 @@
+services:
+  gpio-toradex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vpassos/gpio-toradex:arm64
+    devices:
+      # Mapeia a porta serial do host para o contêiner
+      - "/dev/verdin-uart1:/dev/verdin-uart1"
+      # Mapeia o chip GPIO para o contêiner
+      # VOCÊ PODE PRECISAR ADICIONAR OUTROS CHIPS SE SEUS GPIOs ESTIVEREM EM CHIPS DIFERENTES
+      - "/dev/gpiochip0:/dev/gpiochip0" # Exemplo: Mapeia gpiochip0
+    privileged: true # Use com CAUTELA: Dá acesso total ao hardware. Considere ajustar para capacidades específicas se possível.
+    # Alternativa ao 'privileged': Adicionar grupos e capacidades específicas, ex:
+    # group_add:
+    #   - dialout
+    #   - gpio # Pode não ser um grupo padrão para gpiochip. Verifique o sistema Torizon.
+    # cap_add:
+    #   - SYS_RAWIO # Pode ser necessário para acesso direto a hardware
+    #   - DAC_READ_SEARCH # Para acessar /dev/gpiochipX

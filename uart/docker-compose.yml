@@ -1,0 +1,9 @@
+services:
+  uartpython:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DOCKER_LOGIN}/uartpython:${TAG}
+    devices:
+      # Mapeia a porta serial do host para o contêiner
+      - "/dev/verdin-uart1:/dev/verdin-uart1"
