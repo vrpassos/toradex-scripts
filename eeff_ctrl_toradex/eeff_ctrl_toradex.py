@@ -51,8 +51,11 @@ vac_inferior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[2]]["OFF"]
 cilindro_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[3]]["RETRACTED"]
 vac_superior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[4]]["OFF"]
 
-# --- Configuração de Frequência de Impressão ---
-DISPLAY_UPDATE_INTERVAL_SECONDS = 1 
+# Variável para rastrear o último estado de feedback da UART para controle de impressão
+last_uart_feedback_state = ""
+
+# --- NOVO: Inicializa a flag should_print_status ---
+should_print_status = False
 
 # Função para configurar e controlar o GPIO
 def setup_gpios():
@@ -97,11 +100,21 @@ try:
         print("4 - Vácuo Superior (LIGAR/DESLIGAR)")
         print("Pressione 'q' para sair.")
 
-        last_display_update_time = time.time() 
+        # Função local para evitar repetição no print de status
+        def print_current_status_to_console():
+            print(f"Tool changer: {tool_changer_internal_state}")
+            print(f"Vácuo inferior: {vac_inferior_internal_state}")
+            print(f"Cilindro: {cilindro_internal_state}")
+            print(f"Vácuo superior: {vac_superior_internal_state}")
+        
+        # Imprime o status inicial uma vez
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"\n{timestamp}: Status Inicial:")
+        print_current_status_to_console()
 
         while True:
             current_loop_time = time.time() 
-
+            
             # --- Leitura do Teclado para Controlar GPIOs da Toradex ---
             rlist, _, _ = select.select([sys.stdin], [], [], 0)
             if rlist:
@@ -134,6 +147,9 @@ try:
                         elif pin_num_selected == 4:
                             vac_superior_internal_state = COMPONENT_STATUS[line_offset_to_control]["PENDING_ON"] if new_gpio_state == gpiod.line.Value.ACTIVE else COMPONENT_STATUS[line_offset_to_control]["OFF"]
                             print(f"Vácuo Superior: {vac_superior_internal_state} (comando enviado)")
+                        
+                        # Sinaliza para imprimir o status após o comando do teclado
+                        should_print_status = True 
                     else:
                         print(f"Pino {char_input} não mapeado para uma função.")
                 elif char_input == 'q':
@@ -146,67 +162,68 @@ try:
                 int_value = int.from_bytes(data_byte, 'big')
                 bit_string = bin(int_value)[2:].zfill(4)
                 
+                # ATENÇÃO: Armazena o estado ANTIGO das variáveis INTERNAS antes de atualizá-las
+                old_tool_changer_state = tool_changer_internal_state
+                old_vac_inferior_state = vac_inferior_internal_state
+                old_cilindro_state = cilindro_internal_state
+                old_vac_superior_state = vac_superior_internal_state
+
                 # Mapeia os bits recebidos para o feedback de status
                 tool_changer_feedback_bit = bit_string[0] 
                 vac_inferior_feedback_bit = bit_string[1] 
                 cilindro_feedback_bit = bit_string[2] 
                 vac_superior_feedback_bit = bit_string[3] 
 
+
                 # Atualiza os estados internos baseados no feedback (estado final)
                 tool_changer_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[1]][gpiod.line.Value.ACTIVE] if tool_changer_feedback_bit == '1' else COMPONENT_STATUS[GPIO_LINE_OFFSETS[1]][gpiod.line.Value.INACTIVE]
 
                 # Vácuo Inferior
-                if vac_inferior_feedback_bit == '1': # Se o feedback é '1', está LIGADO
+                if vac_inferior_feedback_bit == '1': 
                     vac_inferior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[2]]["ON"]
-                elif vac_inferior_feedback_bit == '0': # Se o feedback é '0'
-                    # Se o comando Toradex para o Vácuo Inferior está DESATIVO (LOW)
+                elif vac_inferior_feedback_bit == '0': 
                     if current_gpio_output_states[GPIO_LINE_OFFSETS[2]] == gpiod.line.Value.INACTIVE:
                         vac_inferior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[2]]["OFF"]
-                    # Else (comando ainda ATIVO e feedback 0): Mantenha PENDING_ON (pois ainda está esperando o 1)
                     elif vac_inferior_internal_state == COMPONENT_STATUS[GPIO_LINE_OFFSETS[2]]["PENDING_ON"]:
                         pass 
-                    # Else (qualquer outro caso para feedback 0, teoricamente não deveria acontecer se o fluxo estiver correto)
-                    # vac_inferior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[2]]["OFF"] # Como fallback
 
                 # Cilindro
-                if cilindro_feedback_bit == '1': # Se o feedback é '1', está AVANÇADO
+                if cilindro_feedback_bit == '1': 
                     cilindro_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[3]]["EXTENDED"]
-                elif cilindro_feedback_bit == '0': # Se o feedback é '0'
-                    # Se o comando Toradex para o Cilindro está DESATIVO (LOW)
+                elif cilindro_feedback_bit == '0': 
                     if current_gpio_output_states[GPIO_LINE_OFFSETS[3]] == gpiod.line.Value.INACTIVE:
                         cilindro_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[3]]["RETRACTED"]
-                    # Else (comando ainda ATIVO/INATIVO e estado PENDING): Mantenha PENDING
                     elif cilindro_internal_state == COMPONENT_STATUS[GPIO_LINE_OFFSETS[3]]["PENDING_EXTEND"] or \
                          cilindro_internal_state == COMPONENT_STATUS[GPIO_LINE_OFFSETS[3]]["PENDING_RETRACT"]:
                         pass
-                    # Else (qualquer outro caso para feedback 0)
-                    # cilindro_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[3]]["RETRACTED"] # Como fallback
 
                 # Vácuo Superior
-                if vac_superior_feedback_bit == '1': # Se o feedback é '1', está LIGADO
+                if vac_superior_feedback_bit == '1': 
                     vac_superior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[4]]["ON"]
-                elif vac_superior_feedback_bit == '0': # Se o feedback é '0'
-                    # Se o comando Toradex para o Vácuo Superior está DESATIVO (LOW)
+                elif vac_superior_feedback_bit == '0': 
                     if current_gpio_output_states[GPIO_LINE_OFFSETS[4]] == gpiod.line.Value.INACTIVE:
                         vac_superior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[4]]["OFF"]
-                    # Else (comando ainda ATIVO e feedback 0): Mantenha PENDING_ON
                     elif vac_superior_internal_state == COMPONENT_STATUS[GPIO_LINE_OFFSETS[4]]["PENDING_ON"]:
                         pass
-                    # Else (qualquer outro caso para feedback 0)
-                    # vac_superior_internal_state = COMPONENT_STATUS[GPIO_LINE_OFFSETS[4]]["OFF"] # Como fallback
+                
+                # NOVO: Verifica se qualquer estado interno mudou APÓS o processamento do feedback UART
+                # Isso deve ser feito APÓS TODAS as variáveis internas serem atualizadas
+                if (tool_changer_internal_state != old_tool_changer_state or
+                    vac_inferior_internal_state != old_vac_inferior_state or
+                    cilindro_internal_state != old_cilindro_state or
+                    vac_superior_internal_state != old_vac_superior_state):
+                    should_print_status = True # Sinaliza para imprimir o status
 
-
-            # Imprime o status atual APENAS se o intervalo de tempo passou
-            if (current_loop_time - last_display_update_time) >= DISPLAY_UPDATE_INTERVAL_SECONDS:
+            # Imprime o status APENAS se houver mudança
+            if should_print_status:
                 timestamp = datetime.now().strftime("%H:%M:%S")
                 print(f"\n{timestamp}: Status Atual:")
-                print(f"Tool changer: {tool_changer_internal_state}")
-                print(f"Vácuo inferior: {vac_inferior_internal_state}")
-                print(f"Cilindro: {cilindro_internal_state}")
-                print(f"Vácuo superior: {vac_superior_internal_state}")
-                last_display_update_time = current_loop_time 
+                print_current_status_to_console()
                 
-            time.sleep(0.05) 
+                # Reseta a flag após imprimir
+                should_print_status = False
+
+            time.sleep(0.05) # Pequena pausa para evitar CPU alta no loop.
 
 except serial.SerialException as e:
     print(f"Erro ao abrir ou usar a porta serial: {e}")
